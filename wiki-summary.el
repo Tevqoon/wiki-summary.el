@@ -36,6 +36,12 @@
   ; This stops the compiler from complaining.
   (defvar url-http-end-of-headers))
 
+
+(defgroup wiki-summary ()
+  "Easily view Wikipedia summaries."
+  :prefix 'wiki-summary-
+  :group 'convenience)
+
 (defcustom wiki-summary-language-string "en"
   "Language string for the API URL call, i.e.: 'en', 'fr', etc.")
 
