@@ -1,4 +1,4 @@
-;;; wiki-summary.el --- View Wikipedia summaries in Emacs easily.
+;;; wiki-summary.el --- Easily view Wikipedia summaries  -*- lexical-binding: t; -*-
 
 ;; Copright (C) 2015 Danny Gratzer <jozefg@cmu.edu>
 
