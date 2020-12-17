@@ -1,10 +1,10 @@
 ;;; wiki-summary.el --- Easily view Wikipedia summaries  -*- lexical-binding: t; -*-
 
-;; Copright (C) 2015 Danny Gratzer <jozefg@cmu.edu>
+;; Copyright (c) 2015-2020 Danny Gratzer <jozefg@cmu.edu>
 
 ;; Author: Danny Gratzer
 ;; URL: https://github.com/jozefg/wiki-summary.el
-;; Keywords: wikipedia, utility
+;; Keywords: convenience
 ;; Package-Requires: ((emacs "24"))
 ;; Version: 0.1
 
@@ -25,6 +25,8 @@
 ;;
 ;; I'm not sure exactly what else people would want out of this package.
 ;; Feature request issues are welcome.
+
+;;; Code:
 
 (require 'url)
 (require 'json)
