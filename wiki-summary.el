@@ -105,7 +105,6 @@ This function scans the buffer for Wikipedia-style section headings."
     (setq-local imenu-create-index-function #'wiki-summary-imenu-create-index)
     (imenu-add-to-menubar "Sections")))
 
-;; Define the keymap
 (defvar wiki-summary-mode-map
   (let ((map (make-sparse-keymap)))
     ;; Basic navigation is provided by special-mode
@@ -115,6 +114,10 @@ This function scans the buffer for Wikipedia-style section headings."
     (define-key map (kbd "e") 'wiki-summary-get-full-article)
     (define-key map (kbd "w") 'wiki-summary-open-in-eww)
     (define-key map (kbd "b") 'wiki-summary-open-in-browser)
+    
+    ;; Add section navigation for full article
+    (define-key map (kbd "n") 'wiki-summary-next-section)
+    (define-key map (kbd "p") 'wiki-summary-previous-section)
     map)
   "Keymap for `wiki-summary-mode'.")
 
@@ -325,6 +328,36 @@ If region is active, use the selected text as the search term."
                                   (wiki-summary-setup-imenu)
                                   (message "Expanded to full article for %s." title))))))))))
     (pulse-momentary-highlight-one-line (point))))
+
+(defun wiki-summary-next-section ()
+  "Move to the next section heading in the article."
+  (interactive)
+  (let ((original-pos (point)))
+    ;; If we're on a section heading, move past it before searching
+    (when (looking-at "^==+ .+? ==+$")
+      (forward-line 1))
+    ;; Otherwise, just make sure we're at beginning of line
+    (beginning-of-line)
+    (if-let ((found (re-search-forward "^==+ .+? ==+$" nil t)))
+        (beginning-of-line)
+      ;; Restore position if nothing found
+      (goto-char original-pos)
+      (message "No more sections"))))
+
+(defun wiki-summary-previous-section ()
+  "Move to the previous section heading in the article."
+  (interactive)
+  (let ((original-pos (point)))
+    (beginning-of-line)
+    ;; If we're on a section heading, move back before searching
+    (when (looking-at "^==+ .+? ==+$")
+      (forward-line -1)
+      (beginning-of-line))
+    (if-let ((found (re-search-backward "^==+ .+? ==+$" nil t)))
+        (beginning-of-line)
+      ;; Restore position if nothing found
+      (goto-char original-pos)
+      (message "No previous sections"))))
 
 (defun wiki-summary-open-in-eww ()
   "Open the current Wikipedia article in EWW browser."
