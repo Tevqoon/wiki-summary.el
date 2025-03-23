@@ -55,6 +55,53 @@ For available list of Wikipedias see <https://en.wikipedia.org/wiki/List_of_Wiki
 (defvar wiki-summary--post-url-format-string
   "&prop=extracts&exintro=&explaintext=&format=json&redirects")
 
+;; Define a proper keymap for wiki-summary buffers
+(defvar wiki-summary-mode-map
+  (let ((map (make-sparse-keymap)))
+    ;; 'q' kills the buffer instead of burying it
+    (define-key map (kbd "q") (lambda () (interactive) (quit-window t)))
+    ;; Copy content to kill ring
+    (define-key map (kbd "y") 'wiki-summary-copy-to-kill-ring)
+    ;; Insert content into original buffer and quit
+    (define-key map (kbd "i") 'wiki-summary-insert-to-original-buffer)
+    map)
+  "Keymap for wiki-summary-mode.")
+
+;; Define a minor mode for wiki-summary buffers
+(define-minor-mode wiki-summary-mode
+  "Minor mode for wiki-summary buffers.
+\\{wiki-summary-mode-map}"
+  :lighter " WikiSum"
+  :keymap wiki-summary-mode-map)
+
+;; We'll use other-buffer instead of tracking the origin explicitly
+
+;; Function to copy content to kill ring
+(defun wiki-summary-copy-to-kill-ring ()
+  "Copy wiki summary content to kill ring.
+If region is active, copy that region; otherwise, copy the whole buffer."
+  (interactive)
+  (let ((content (if (use-region-p)
+                     (buffer-substring (region-beginning) (region-end))
+                   (buffer-string))))
+    (kill-new content)
+    (message "Content copied to kill ring")))
+
+;; Function to insert content into original buffer and quit
+(defun wiki-summary-insert-to-original-buffer ()
+  "Insert wiki summary content into the original buffer and quit.
+If region is active, insert that region; otherwise, insert the whole buffer."
+  (interactive)
+  (let ((content (if (use-region-p)
+                     (buffer-substring (region-beginning) (region-end))
+                   (buffer-string)))
+        (target-buffer (other-buffer (current-buffer) t)))
+    (when (buffer-live-p target-buffer)
+      (with-current-buffer target-buffer
+        (insert content))
+      (message "Content inserted into buffer %s" (buffer-name target-buffer)))
+    (quit-window t))) ; Kill the buffer, don't just bury it
+
 (defun wiki-summary-make-api-query (s)
   "Given a wiki page title, generate the url for the API call
    to get the page info"
@@ -74,11 +121,12 @@ For available list of Wikipedias see <https://en.wikipedia.org/wiki/List_of_Wiki
   "Given a summary, stick it in the *wiki-summary* buffer and display the buffer"
   (let ((buf (generate-new-buffer "*wiki-summary*")))
     (with-current-buffer buf
-      (princ summary buf)
+      (insert summary) ; Using insert instead of princ for better buffer handling
       (fill-paragraph)
       (goto-char (point-min))
       (text-mode)
-      (view-mode))
+      (view-mode)
+      (wiki-summary-mode))
     (pop-to-buffer buf)))
 
 (defun wiki-summary-format-summary-into-buffer (summary buffer)
@@ -150,4 +198,3 @@ For available list of Wikipedias see <https://en.wikipedia.org/wiki/List_of_Wiki
 
 (provide 'wiki-summary)
 ;;; wiki-summary.el ends here
-
