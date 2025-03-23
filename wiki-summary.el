@@ -23,8 +23,13 @@
 ;; something like "Haskell (programming language)" will bring up the
 ;; intended page.
 ;;
-;; I'm not sure exactly what else people would want out of this package.
-;; Feature request issues are welcome.
+;; Special Keys in wiki-summary-mode:
+;; q - Quit and kill the buffer
+;; y - Copy content to kill ring (region or whole buffer)
+;; i - Insert content into original buffer and quit
+;; e - Expand to show the full article
+;; w - Open article in EWW browser
+;; b - Open article in external browser
 
 ;;; Code:
 
@@ -55,28 +60,51 @@ For available list of Wikipedias see <https://en.wikipedia.org/wiki/List_of_Wiki
 (defvar wiki-summary--post-url-format-string
   "&prop=extracts&exintro=&explaintext=&format=json&redirects")
 
-;; Define a proper keymap for wiki-summary buffers
+(defvar wiki-summary--full-post-url-format-string
+  "&prop=extracts&explaintext=&format=json&redirects"
+  "URL parameters for fetching the full article content.")
+
+;; Track article information for expansion and browsing
+(defvar-local wiki-summary-article-title nil
+  "The title of the Wikipedia article being displayed.")
+
+(defvar-local wiki-summary-article-language nil
+  "The language of the Wikipedia article being displayed.")
+
+(defvar-local wiki-summary-is-full-article nil
+  "Whether the current buffer contains the full article or just a summary.")
+
+(defvar-local wiki-summary-origin-buffer nil
+  "The buffer from which the wiki summary was requested.")
+
+;; Define the keymap
 (defvar wiki-summary-mode-map
   (let ((map (make-sparse-keymap)))
-    ;; 'q' kills the buffer instead of burying it
-    (define-key map (kbd "q") (lambda () (interactive) (quit-window t)))
-    ;; Copy content to kill ring
+    ;; Basic navigation is provided by special-mode
+    (define-key map (kbd "q") 'wiki-summary-quit)
     (define-key map (kbd "y") 'wiki-summary-copy-to-kill-ring)
-    ;; Insert content into original buffer and quit
     (define-key map (kbd "i") 'wiki-summary-insert-to-original-buffer)
+    (define-key map (kbd "e") 'wiki-summary-get-full-article)
+    (define-key map (kbd "w") 'wiki-summary-open-in-eww)
+    (define-key map (kbd "b") 'wiki-summary-open-in-browser)
     map)
-  "Keymap for wiki-summary-mode.")
+  "Keymap for `wiki-summary-mode'.")
 
-;; Define a minor mode for wiki-summary buffers
-(define-minor-mode wiki-summary-mode
-  "Minor mode for wiki-summary buffers.
+(define-derived-mode wiki-summary-mode special-mode "Wiki-Summary"
+  "Major mode for viewing Wikipedia article summaries.
+
 \\{wiki-summary-mode-map}"
-  :lighter " WikiSum"
-  :keymap wiki-summary-mode-map)
+  :group 'wiki-summary
+  (setq buffer-read-only t)
+  (buffer-disable-undo))
 
-;; We'll use other-buffer instead of tracking the origin explicitly
+;; Custom functions for keybindings
 
-;; Function to copy content to kill ring
+(defun wiki-summary-quit ()
+  "Quit and kill the wiki-summary buffer."
+  (interactive)
+  (kill-buffer))
+
 (defun wiki-summary-copy-to-kill-ring ()
   "Copy wiki summary content to kill ring.
 If region is active, copy that region; otherwise, copy the whole buffer."
@@ -87,7 +115,6 @@ If region is active, copy that region; otherwise, copy the whole buffer."
     (kill-new content)
     (message "Content copied to kill ring")))
 
-;; Function to insert content into original buffer and quit
 (defun wiki-summary-insert-to-original-buffer ()
   "Insert wiki summary content into the original buffer and quit.
 If region is active, insert that region; otherwise, insert the whole buffer."
@@ -96,19 +123,28 @@ If region is active, insert that region; otherwise, insert the whole buffer."
                      (buffer-substring (region-beginning) (region-end))
                    (buffer-string)))
         (target-buffer (other-buffer (current-buffer) t)))
-    (when (buffer-live-p target-buffer)
-      (with-current-buffer target-buffer
-        (insert content))
-      (message "Content inserted into buffer %s" (buffer-name target-buffer)))
-    (quit-window t))) ; Kill the buffer, don't just bury it
+    (if (buffer-live-p target-buffer)
+        (progn
+          (with-current-buffer target-buffer
+            (insert content))
+          (message "Content inserted into buffer %s" (buffer-name target-buffer))
+          (kill-buffer))
+      (message "No suitable target buffer found."))))
 
-(defun wiki-summary-make-api-query (s)
-  "Given a wiki page title, generate the url for the API call
-   to get the page info"
+(defun wiki-summary-make-api-query (s &optional full)
+  "Given a wiki page title S, generate the url for the API call.
+When FULL is non-nil, fetch the full article instead of just the summary."
   (let ((pre (format wiki-summary--pre-url-format-string wiki-summary-language-string))
-        (post wiki-summary--post-url-format-string)
+        (post (if full wiki-summary--full-post-url-format-string
+                wiki-summary--post-url-format-string))
         (term (url-hexify-string (replace-regexp-in-string " " "_" s))))
     (concat pre term post)))
+
+(defun wiki-summary-make-wiki-url (title &optional language)
+  "Generate a standard Wikipedia URL for TITLE in LANGUAGE."
+  (let ((lang (or language wiki-summary-language-string "en"))
+        (title-encoded (url-hexify-string (replace-regexp-in-string " " "_" title))))
+    (format "https://%s.wikipedia.org/wiki/%s" lang title-encoded)))
 
 (defun wiki-summary-extract-summary (resp)
   "Given the JSON reponse from the webpage, grab the summary as a string"
@@ -117,20 +153,27 @@ If region is active, insert that region; otherwise, insert the whole buffer."
          (info (cadr pages)))
     (plist-get info 'extract)))
 
-(defun wiki-summary-format-summary-in-buffer (summary)
-  "Given a summary, stick it in the *wiki-summary* buffer and display the buffer"
-  (let ((buf (generate-new-buffer "*wiki-summary*")))
+(defun wiki-summary-format-summary-in-buffer (summary title)
+  "Given a SUMMARY and TITLE, display it in a wiki-summary buffer."
+  (let ((buf (generate-new-buffer (format "*wiki-summary: %s*" title)))
+        (origin-buffer (current-buffer)))
     (with-current-buffer buf
-      (insert summary) ; Using insert instead of princ for better buffer handling
-      (fill-paragraph)
-      (goto-char (point-min))
-      (text-mode)
-      (view-mode)
-      (wiki-summary-mode))
-    (pop-to-buffer buf)))
+      (wiki-summary-mode)
+      (let ((inhibit-read-only t))
+        (insert summary)
+        (fill-paragraph)
+        (goto-char (point-min)))
+      ;; Store article information for later use
+      (setq-local wiki-summary-article-title title)
+      (setq-local wiki-summary-article-language wiki-summary-language-string)
+      (setq-local wiki-summary-is-full-article nil)
+      (setq-local wiki-summary-origin-buffer origin-buffer))
+    (pop-to-buffer buf)
+    ;; Return the buffer in case it's needed
+    buf))
 
 (defun wiki-summary-format-summary-into-buffer (summary buffer)
-  "Given a summary, stick it in the *wiki-summary* buffer and display the buffer"
+  "Given a SUMMARY, stick it in the BUFFER and display the buffer"
   (let ((this-buffer (get-buffer buffer)))
     (with-current-buffer (get-buffer this-buffer)
       (barf-if-buffer-read-only)
@@ -140,18 +183,26 @@ If region is active, insert that region; otherwise, insert the whole buffer."
 
 ;;;###autoload
 (defun wiki-summary (s)
-  "Return the wikipedia page's summary for a term"
+  "Return the wikipedia page's summary for a term S.
+If region is active, use the selected text as the search term."
   (interactive
    (list
     (read-string (concat
                   "Wikipedia Article"
-                  (if (thing-at-point 'word)
-                      (concat " (" (thing-at-point 'word) ")")
-                    "")
+                  (cond
+                   ((use-region-p)
+                    (concat " (" (buffer-substring-no-properties
+                                 (region-beginning) (region-end)) ")"))
+                   ((thing-at-point 'word)
+                    (concat " (" (thing-at-point 'word) ")"))
+                   (t ""))
                   ": ")
                  nil
                  nil
-                 (thing-at-point 'word))))
+                 (if (use-region-p)
+                     (buffer-substring-no-properties
+                      (region-beginning) (region-end))
+                   (thing-at-point 'word)))))
   (save-excursion
     (url-retrieve (wiki-summary-make-api-query s)
        (lambda (events)
@@ -164,22 +215,30 @@ If region is active, insert that region; otherwise, insert the whole buffer."
                   (summary (wiki-summary-extract-summary result)))
              (if (not summary)
                  (message "No article found")
-               (wiki-summary-format-summary-in-buffer summary))))))))
+               (wiki-summary-format-summary-in-buffer summary s))))))))
 
 ;;;###autoload
 (defun wiki-summary-insert (s)
-  "Return the wikipedia page's summary for a term"
+  "Insert the wikipedia page's summary for a term S.
+If region is active, use the selected text as the search term."
   (interactive
    (list
     (read-string (concat
                   "Wikipedia Article"
-                  (if (thing-at-point 'word)
-                      (concat " (" (thing-at-point 'word) ")")
-                    "")
+                  (cond
+                   ((use-region-p)
+                    (concat " (" (buffer-substring-no-properties
+                                 (region-beginning) (region-end)) ")"))
+                   ((thing-at-point 'word)
+                    (concat " (" (thing-at-point 'word) ")"))
+                   (t ""))
                   ": ")
                  nil
                  nil
-                 (thing-at-point 'word))))
+                 (if (use-region-p)
+                     (buffer-substring-no-properties
+                      (region-beginning) (region-end))
+                   (thing-at-point 'word)))))
   (save-excursion
     (url-retrieve
      (wiki-summary-make-api-query s)
@@ -195,6 +254,64 @@ If region is active, insert that region; otherwise, insert the whole buffer."
                (message "No article found")
              (wiki-summary-format-summary-into-buffer summary buf)))))
      (list (buffer-name (current-buffer))))))
+
+;; Functions for article expansion and browser integration
+
+(defun wiki-summary-get-full-article ()
+  "Fetch the full content of the current Wikipedia article."
+  (interactive)
+  (when wiki-summary-article-title
+    (if wiki-summary-is-full-article
+        (message "Already viewing the full article.")
+      (let ((title wiki-summary-article-title)
+            (language wiki-summary-article-language))
+        (message "Fetching full article for %s..." title)
+        (url-retrieve (wiki-summary-make-api-query title t)
+                      (lambda (events)
+                        (message "")
+                        (goto-char url-http-end-of-headers)
+                        (let ((json-object-type 'plist)
+                              (json-key-type 'symbol)
+                              (json-array-type 'vector))
+                          (let* ((result (json-read))
+                                 (full-content (wiki-summary-extract-summary result)))
+                            (if (not full-content)
+                                (message "Could not retrieve full article.")
+                              (with-current-buffer (get-buffer (format "*wiki-summary: %s*" title))
+                                (let ((inhibit-read-only t)
+                                      (pos (point)))
+                                  (erase-buffer)
+                                  (insert full-content)
+                                  (fill-paragraph)
+                                  (goto-char (min pos (point-max)))
+                                  (setq-local wiki-summary-is-full-article t)
+                                  (rename-buffer (format "*wiki-full: %s*" title) t)
+                                  (message "Expanded to full article for %s." title))))))))))
+    (pulse-momentary-highlight-one-line (point))))
+
+(defun wiki-summary-open-in-eww ()
+  "Open the current Wikipedia article in EWW browser."
+  (interactive)
+  (if (and wiki-summary-article-title wiki-summary-article-language)
+      (progn
+        (require 'eww)
+        (let ((url (wiki-summary-make-wiki-url wiki-summary-article-title
+                                              wiki-summary-article-language)))
+          (message "Opening %s in EWW..." wiki-summary-article-title)
+          (eww-browse-url url)
+          (message "Opened %s in EWW." wiki-summary-article-title)))
+    (message "No article information available.")))
+
+(defun wiki-summary-open-in-browser ()
+  "Open the current Wikipedia article in external browser."
+  (interactive)
+  (if (and wiki-summary-article-title wiki-summary-article-language)
+      (let ((url (wiki-summary-make-wiki-url wiki-summary-article-title
+                                            wiki-summary-article-language)))
+        (message "Opening %s in browser..." wiki-summary-article-title)
+        (browse-url url)
+        (message "Opened %s in browser." wiki-summary-article-title))
+    (message "No article information available.")))
 
 (provide 'wiki-summary)
 ;;; wiki-summary.el ends here
