@@ -77,6 +77,34 @@ For available list of Wikipedias see <https://en.wikipedia.org/wiki/List_of_Wiki
 (defvar-local wiki-summary-origin-buffer nil
   "The buffer from which the wiki summary was requested.")
 
+;; Imenu Integration
+(defvar wiki-summary-imenu-generic-expression
+  '(("Sections" "^\\(==+ \\(.+?\\) ==+\\)$" 2))
+  "Imenu expression for `wiki-summary-mode'.
+This will match Wikipedia-style section headings like '== History ==' or
+'=== Early years ===' and create imenu entries for them.")
+
+(defun wiki-summary-imenu-create-index ()
+  "Create an imenu index for the current wiki-summary buffer.
+This function scans the buffer for Wikipedia-style section headings."
+  (let ((index nil)
+        (case-fold-search nil))
+    (goto-char (point-min))
+    (while (re-search-forward "^==+ \\(.+?\\) ==+$" nil t)
+      (let* ((heading (match-string-no-properties 1))
+             (level (- (match-end 0) (match-beginning 0) 
+                       (length heading) 2)) ; Calculate heading level based on = chars
+             (indent (make-string (* 2 (- (/ level 2) 1)) ?\s))
+             (entry (cons (concat indent heading) (match-beginning 0))))
+        (push entry index)))
+    (nreverse index)))
+
+(defun wiki-summary-setup-imenu ()
+  "Setup imenu for the current wiki-summary buffer."
+  (when (fboundp 'imenu-add-to-menubar)
+    (setq-local imenu-create-index-function #'wiki-summary-imenu-create-index)
+    (imenu-add-to-menubar "Sections")))
+
 ;; Define the keymap
 (defvar wiki-summary-mode-map
   (let ((map (make-sparse-keymap)))
@@ -96,7 +124,9 @@ For available list of Wikipedias see <https://en.wikipedia.org/wiki/List_of_Wiki
 \\{wiki-summary-mode-map}"
   :group 'wiki-summary
   (setq buffer-read-only t)
-  (buffer-disable-undo))
+  (buffer-disable-undo)
+  ;; Set up imenu if it's available
+  (wiki-summary-setup-imenu))
 
 ;; Custom functions for keybindings
 
@@ -167,7 +197,9 @@ When FULL is non-nil, fetch the full article instead of just the summary."
       (setq-local wiki-summary-article-title title)
       (setq-local wiki-summary-article-language wiki-summary-language-string)
       (setq-local wiki-summary-is-full-article nil)
-      (setq-local wiki-summary-origin-buffer origin-buffer))
+      (setq-local wiki-summary-origin-buffer origin-buffer)
+      ;; Setup imenu if available
+      (wiki-summary-setup-imenu))
     (pop-to-buffer buf)
     ;; Return the buffer in case it's needed
     buf))
@@ -286,6 +318,8 @@ If region is active, use the selected text as the search term."
                                   (goto-char (min pos (point-max)))
                                   (setq-local wiki-summary-is-full-article t)
                                   (rename-buffer (format "*wiki-full: %s*" title) t)
+                                  ;; Re-setup imenu for the full article
+                                  (wiki-summary-setup-imenu)
                                   (message "Expanded to full article for %s." title))))))))))
     (pulse-momentary-highlight-one-line (point))))
 
