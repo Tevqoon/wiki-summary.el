@@ -131,9 +131,9 @@ This function scans the buffer for Wikipedia-style section headings."
 ;; Custom functions for keybindings
 
 (defun wiki-summary-quit ()
-  "Quit and kill the wiki-summary buffer."
+  "Quit and kill the wiki-summary buffer, also closing its window."
   (interactive)
-  (kill-buffer))
+  (quit-window t))
 
 (defun wiki-summary-copy-to-kill-ring ()
   "Copy wiki summary content to kill ring.
@@ -158,8 +158,9 @@ If region is active, insert that region; otherwise, insert the whole buffer."
           (with-current-buffer target-buffer
             (insert content))
           (message "Content inserted into buffer %s" (buffer-name target-buffer))
-          (if (string-match-p "\\*wiki-summary:" (buffer-name))
-	      (kill-buffer))
+	  (if (string-match-p "\\*wiki-summary:" (buffer-name))
+	      (quit-window t)
+	    (message "Content inserted. Buffer kept open for further reference."))
 	  )
       (message "No suitable target buffer found."))))
 
