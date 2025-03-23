@@ -158,7 +158,9 @@ If region is active, insert that region; otherwise, insert the whole buffer."
           (with-current-buffer target-buffer
             (insert content))
           (message "Content inserted into buffer %s" (buffer-name target-buffer))
-          (kill-buffer))
+          (if (string-match-p "\\*wiki-summary:" (buffer-name))
+	      (kill-buffer))
+	  )
       (message "No suitable target buffer found."))))
 
 (defun wiki-summary-make-api-query (s &optional full)
